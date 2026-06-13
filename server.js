@@ -5,8 +5,7 @@ const app = express();
 app.use(express.json());
 
 // Local Connection (No Internet Needed, No Network Error!)
-const uri = "mongodb://127.0.0.1:27017/gmp_database";
-
+const uri = process.env.MONGO_URI || "mongodb://127.0.0.1:27017/gmp_database";
 mongoose.connect(uri)
   .then(() => console.log("✅ JAI HO! LOCAL MONGODB CONNECTED SUCCESSFULLY!"))
   .catch(err => console.error("❌ MongoDB connection error:", err));

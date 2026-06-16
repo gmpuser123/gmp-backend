@@ -4,16 +4,16 @@ const mongoose = require('mongoose');
 const app = express();
 app.use(express.json());
 
-// 🔗 Aapka naya aur bilkul sahi Atlas link (gmp_database naam ke sath)
-const uri = "mongodb+srv://gmpuser:gmp12345@cluster0.k39haau.mongodb.net/gmp_database?retryWrites=true&w=majority";
+// 🔗 Render ke liye MONGO_URI priority hai, nahi toh local chalega
+const uri = process.env.MONGO_URI || "mongodb+srv://gmpuser:gmp12345@cluster0.k39haau.mongodb.net/gmp_database?retryWrites=true&w=majority";
 
-// 🌐 MongoDB Connection Helper (Mongoose ke zariya)
+// 🌐 MongoDB Connection Helper
 const connectDB = async () => {
     try {
         await mongoose.connect(uri, {
             serverSelectionTimeoutMS: 5000 
         });
-        console.log("✅ JAI HO! CLOUD MONGODB CONNECTED SUCCESSFULLY!");
+        console.log("✅ MongoDB Connected Successfully!");
     } catch (err) {
         console.log("⚠️ MongoDB Connect Nahi Hua, But Server Is Running!");
         console.error("Database Error Details:", err.message);
@@ -67,31 +67,6 @@ app.get('/get-campaigns', async (req, res) => {
     } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
+// --- SERVER START ---
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Server running on port ${PORT}`));
-}
-run().catch(console.dir);
-
-
-const app = express();
-app.use(express.json());
-
-// 🔗 Yeh line zaroori hai! (Render par Cloud uthayega, Laptop par Local)
-const uri = process.env.MONGO_URI || "mongodb://127.0.0.1:27017/gmp_database";
-
-// 🌐 MongoDB Connection Helper
-const connectDB = async () => {
-    try {
-        await mongoose.connect(uri, {
-            serverSelectionTimeoutMS: 5000 
-        });
-        console.log("✅ MongoDB Connected Successfully!");
-    } catch (err) {
-        console.log("⚠️ MongoDB Connect Nahi Hua, But Server Is Running!");
-        console.error("MongoDB Error Details:", err.message);
-    }
-};
-
-connectDB();
-
-// --- Iske NEECHE aapka purana UserSchema, CampaignSchema aur saare ROUTES waise hi rahenge ---

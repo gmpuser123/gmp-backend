@@ -1,7 +1,11 @@
 const express = require('express');
 const mongoose = require('mongoose');
+const cors = require('cors'); // ✅ CORS package ko import kiya
 
 const app = express();
+
+// ✅ CORS ko express.json() se pehle lagaya taaki frontend request block na ho
+app.use(cors()); 
 app.use(express.json());
 
 // 🔗 Render ke liye MONGO_URI priority hai, nahi toh local chalega

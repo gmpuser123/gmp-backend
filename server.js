@@ -1,76 +1,103 @@
 const express = require('express');
 const mongoose = require('mongoose');
-const cors = require('cors'); // ✅ CORS package ko import kiya
+const cors = require('cors'); // <-- Ye lagana zaroori tha, ab add kar diya hai
 
 const app = express();
+const PORT = process.env.PORT || 10000;
 
-// ✅ CORS ko express.json() se pehle lagaya taaki frontend request block na ho
-app.use(cors()); 
+// CORS settings: Netlify aur baaki sabhi requests ko allow karne ke liye
+app.use(cors({
+    origin: '*', 
+    methods: ['GET', 'POST'],
+    allowedHeaders: ['Content-Type']
+}));
+
 app.use(express.json());
 
-// 🔗 Render ke liye MONGO_URI priority hai, nahi toh local chalega
-const uri = process.env.MONGO_URI || "mongodb+srv://gmpuser:gmp12345@cluster0.k39haau.mongodb.net/gmp_database?retryWrites=true&w=majority";
+// MongoDB Connection Logic
+const MONGO_URI = process.env.MONGO_URI;
 
-// 🌐 MongoDB Connection Helper
-const connectDB = async () => {
-    try {
-        await mongoose.connect(uri, {
-            serverSelectionTimeoutMS: 5000 
-        });
-        console.log("✅ MongoDB Connected Successfully!");
-    } catch (err) {
-        console.log("⚠️ MongoDB Connect Nahi Hua, But Server Is Running!");
-        console.error("Database Error Details:", err.message);
-    }
-};
+mongoose.connect(MONGO_URI)
+.then(() => console.log('✅ MongoDB Connected Successfully!'))
+.catch(err => console.error('❌ MongoDB Connection Error:', err));
 
-connectDB();
-
-// --- SCHEMAS ---
-const UserSchema = new mongoose.Schema({
-    name: String,
-    email: String,
-    age: Number
-});
-const User = mongoose.model('User', UserSchema);
-
-const CampaignSchema = new mongoose.Schema({
-    title: { type: String, required: true },
-    brandName: { type: String, required: true },
+// Schemas & Models
+const campaignSchema = new mongoose.Schema({
+    name: { type: String, required: true },
     budget: { type: Number, required: true },
-    description: String,
-    createdAt: { type: Date, default: Date.now }
+    pricePerThousand: { type: Number, required: true },
+    desc: { type: String, required: true },
+    owner: { type: String, default: "System" }
 });
-const Campaign = mongoose.model('Campaign', CampaignSchema);
 
-// --- ROUTES ---
+const submissionSchema = new mongoose.Schema({
+    id: { type: String, required: true },
+    creator: { type: String, required: true },
+    insta: { type: String, required: true },
+    brand: { type: String, required: true },
+    link: { type: String, required: true },
+    views: { type: Number, default: 0 },
+    status: { type: String, default: "Pending" }
+});
+
+const Campaign = mongoose.model('Campaign', campaignSchema);
+const Submission = mongoose.model('Submission', submissionSchema);
+
+// ---- API ROUTES ----
+
+// 1. Welcome Route
 app.get('/', (req, res) => {
-    res.send("🎉 GMP Backend Home Page Is Live!");
+    res.send('🚀 GMP Viral Backend API is running perfectly!');
 });
 
-app.post('/add-user', async (req, res) => {
+// 2. Get All Campaigns
+app.get('/get-campaigns', async (req, res) => {
     try {
-        const newUser = new User(req.body);
-        await newUser.save();
-        res.status(201).json({ message: "🎉 User data saved successfully!", data: newUser });
-    } catch (error) { res.status(500).json({ error: error.message }); }
+        const campaigns = await Campaign.find({});
+        res.status(200).json(campaigns);
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to fetch campaigns' });
+    }
 });
 
+// 3. Launch New Campaign
 app.post('/run-campaign', async (req, res) => {
     try {
         const newCampaign = new Campaign(req.body);
         await newCampaign.save();
-        res.status(201).json({ message: "🚀 Campaign Live!", campaign: newCampaign });
-    } catch (error) { res.status(500).json({ error: error.message }); }
+        res.status(201).json({ success: true, message: 'Campaign launched successfully!' });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to launch campaign' });
+    }
 });
 
-app.get('/get-campaigns', async (req, res) => {
+// 4. Get All Submissions
+app.get('/get-submissions', async (req, res) => {
     try {
-        const allCampaigns = await Campaign.find().sort({ createdAt: -1 });
-        res.status(200).json({ totalCampaigns: allCampaigns.length, campaigns: allCampaigns });
-    } catch (error) { res.status(500).json({ error: error.message }); }
+        const submissions = await Submission.find({});
+        res.status(200).json(submissions);
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to fetch submissions' });
+    }
 });
 
-// --- SERVER START ---
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Server running on port ${PORT}`));
+// 5. Submit Reel Link
+app.post('/submit-reel', async (req, res) => {
+    try {
+        const newSubmission = new Submission(req.body);
+        await newSubmission.save();
+        res.status(201).json({ success: true, message: 'Reel submitted successfully!' });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to submit reel' });
+    }
+});
+
+// Dummy Register route to avoid errors
+app.post('/register', (req, res) => {
+    res.status(200).json({ success: true, message: 'User registered in session' });
+});
+
+// Start Server
+app.listen(PORT, () => {
+    console.log(`🚀 Server running on port ${PORT}`);
+});

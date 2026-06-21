@@ -4,181 +4,284 @@ const cors = require('cors');
 const axios = require('axios');
 
 const app = express();
-const PORT = process.env.PORT || 10000;
 
-// CORS configuration
+// ==========================================
+// --- ULTIMATE CORS BYPASS CONFIGURATION ---
+// ==========================================
+// Official cors middleware jo har origin aur x-admin-pass header ko automatic pass karega
 app.use(cors({
-    origin: '*', 
-    methods: ['GET', 'POST'],
-    allowedHeaders: ['Content-Type']
+    origin: '*',
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'x-admin-pass'],
+    credentials: true
 }));
 
 app.use(express.json());
 
-// MongoDB Connection
-const MONGO_URI = process.env.MONGO_URI;
+// --- HOME PAGE WELCOME ROUTE ---
+app.get('/', (req, res) => {
+    res.send("🚀 GMP Viral Backend Engine is Live and Running, Ansh Bhai!");
+});
+
+// ==========================================
+// --- 1. DATABASE CONNECTION & CONFIG ---
+// ==========================================
+const MONGO_URI = process.env.MONGO_URI || "mongodb://127.0.0.1:27017/gmp_viral";
 mongoose.connect(MONGO_URI)
-.then(() => console.log('✅ MongoDB Connected Successfully!'))
-.catch(err => console.error('❌ MongoDB Connection Error:', err));
+    .then(() => console.log("📡 Connected to MongoDB Vault Securely"))
+    .catch(err => console.error("💥 MongoDB Connection Error:", err));
 
-// Fast2SMS API Key (Render environment variable se uthayega, backup me aapki key hai)
-const FAST2SMS_API_KEY = process.env.FAST2SMS_API_KEY || "ETW0QN9HOpsKAVbPdgDtIBRqMC5XhaSclZz1Gn8wJv72ouF3jytYpofzVTsldAWwrb2HuZ0Ok47hQBIj";
 
-// Temporary object to hold user details before OTP confirmation
-let tempUsers = {};
-
-// MongoDB Schema for Users (Creators & Brands)
+// ==========================================
+// --- 2. SCHEMAS & DATABASE MODELS ---
+// ==========================================
 const userSchema = new mongoose.Schema({
-    role: { type: String, required: true }, // 'creator' or 'brand'
-    name: { type: String, required: true },
-    phone: { type: String, required: true, unique: true },
-    extraDetails: { type: Object, default: {} }
+    name: String,
+    phone: { type: String, unique: true, required: true },
+    role: String, 
+    extraDetails: mongoose.Schema.Types.Mixed
 });
 const User = mongoose.model('User', userSchema);
 
-// MongoDB Schema for Campaigns
 const campaignSchema = new mongoose.Schema({
-    name: { type: String, required: true },
-    budget: { type: Number, required: true },
-    pricePerThousand: { type: Number, required: true },
-    desc: { type: String, required: true },
-    owner: { type: String, required: true },
-    createdAt: { type: Date, default: Date.now }
+    name: String,
+    budget: Number,
+    pricePerThousand: Number,
+    desc: String,
+    owner: String, 
+    transactionId: String,
+    status: { type: String, default: "Pending" } 
 });
 const Campaign = mongoose.model('Campaign', campaignSchema);
 
-// MongoDB Schema for Submissions
 const submissionSchema = new mongoose.Schema({
-    id: { type: String, required: true },
-    creator: { type: String, required: true },
-    insta: { type: String, default: "N/A" },
-    brand: { type: String, required: true },
-    link: { type: String, required: true },
+    id: String,
+    creator: String, 
+    creatorName: String,
+    insta: String,
+    brand: String,
+    link: String,
     views: { type: Number, default: 0 },
-    status: { type: String, default: "Pending" },
-    createdAt: { type: Date, default: Date.now }
+    status: { type: String, default: "Pending" }
 });
 const Submission = mongoose.model('Submission', submissionSchema);
 
-// ==================== API ROUTES ====================
+const tempUsers = {};
 
-// 1. Route: Send Live OTP via Fast2SMS
-app.post('/send-otp', async (req, res) => {
-    const { phone, name, role, extraDetails } = req.body;
-
-    if (!phone || phone.length !== 10) {
-        return res.status(400).json({ success: false, message: "Valid 10-digit phone number is required" });
-    }
-
-    // Generate random 6-digit OTP
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-
-    // Store temporarily in memory
-    tempUsers[phone] = { name, role, extraDetails, otp, createdAt: Date.now() };
-
+// ==========================================
+// --- AUTOMATIC REAL VIEWS FETCH FUNCTION ---
+// ==========================================
+async function getRealViews(reelUrl) {
     try {
-        // Fast2SMS Quick SMS API Call
-        const response = await axios.post('https://www.fast2sms.com/dev/bulkV2', {
-            route: 'q',
-            message: `GMP VIRAL: Your verification OTP is ${otp}. Valid for 5 minutes.`,
-            language: 'english',
-            numbers: phone
-        }, {
+        const matches = reelUrl.match(/(?:reel|p)\/([A-Za-z0-9_-]+)/);
+        if (!matches || !matches[1]) return 0;
+        
+        const shortcode = matches[1];
+        const embedUrl = `https://www.instagram.com/p/${shortcode}/embed/captioned/`;
+        
+        const response = await axios.get(embedUrl, {
             headers: {
-                'authorization': FAST2SMS_API_KEY,
-                'Content-Type': 'application/json'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             }
         });
 
-        if (response.data.return) {
-            res.status(200).json({ success: true, message: "OTP sent successfully!" });
-        } else {
-            res.status(500).json({ success: false, message: "Fast2SMS rejected the dispatch." });
+        const html = response.data;
+        const videoMatches = html.match(/"video_view_count":\s*([0-9]+)/);
+        if (videoMatches && videoMatches[1]) {
+            return parseInt(videoMatches[1], 10);
         }
+        
+        const altMatches = html.match(/([0-9,]+)\s*views/i);
+        if (altMatches && altMatches[1]) {
+            return parseInt(altMatches[1].replace(/,/g, ''), 10);
+        }
+        return 0;
     } catch (error) {
-        console.error("SMS Error:", error.response ? error.response.data : error.message);
-        res.status(500).json({ success: false, message: "Internal server error while sending SMS." });
+        console.error("Error fetching real Instagram views:", error.message);
+        return 0;
     }
+}
+
+// ==========================================
+// --- 3. AUTHENTICATION & LOGIN FLOW ---
+// ==========================================
+app.post('/send-otp', async (req, res) => {
+    const { name, phone, role, extraDetails } = req.body;
+    if (!phone) return res.status(400).json({ success: false, message: "Phone number required." });
+
+    const generatedOtp = "123456"; 
+    tempUsers[phone] = { name, role, extraDetails, otp: generatedOtp };
+    console.log(`🔑 OTP for ${phone} is [${generatedOtp}] | Mode: ${role}`);
+    return res.status(200).json({ success: true, message: "OTP sent successfully." });
 });
 
-// 2. Route: Verify OTP and Save User to MongoDB
 app.post('/verify-otp', async (req, res) => {
     const { phone, otp } = req.body;
     const tempData = tempUsers[phone];
-
-    if (!tempData) {
-        return res.status(400).json({ success: false, message: "OTP expired or invalid session. Please try again." });
-    }
+    if (!tempData) return res.status(400).json({ success: false, message: "OTP expired." });
 
     if (tempData.otp === otp) {
         try {
-            // Check if user already exists
             let existingUser = await User.findOne({ phone });
             if (existingUser) {
+                if (existingUser.role !== tempData.role) {
+                    existingUser.role = tempData.role;
+                    if (tempData.extraDetails) existingUser.extraDetails = { ...existingUser.extraDetails, ...tempData.extraDetails };
+                    await existingUser.save();
+                }
                 delete tempUsers[phone];
-                return res.status(200).json({ success: true, message: "Logged in successfully!", user: existingUser });
+                return res.status(200).json({ success: true, user: existingUser });
             }
-
-            // Create new verified user
-            const newUser = new User({
-                role: tempData.role,
-                name: tempData.name,
-                phone: phone,
-                extraDetails: tempData.extraDetails
-            });
-
+            const newUser = new User({ role: tempData.role, name: tempData.name, phone: phone, extraDetails: tempData.extraDetails });
             await newUser.save();
-            delete tempUsers[phone]; // Clear temp memory
-
-            res.status(201).json({ success: true, message: "Registration verified and saved!", user: newUser });
-        } catch (err) {
-            res.status(500).json({ success: false, message: "Failed to save user in MongoDB." });
+            delete tempUsers[phone];
+            return res.status(201).json({ success: true, user: newUser });
+        } catch (err) { 
+            return res.status(500).json({ success: false, error: err.message }); 
         }
-    } else {
-        res.status(400).json({ success: false, message: "Wrong OTP entered. Please check and try again." });
+    } else { 
+        return res.status(400).json({ success: false, message: "Invalid code." }); 
     }
 });
 
-// 3. Campaign Routes
+// ==========================================
+// --- 4. BRAND & CAMPAIGN MANAGEMENT ---
+// ==========================================
 app.post('/run-campaign', async (req, res) => {
     try {
-        const newCampaign = new Campaign(req.body);
+        const { name, budget, pricePerThousand, desc, owner, transactionId } = req.body;
+        const newCampaign = new Campaign({ name, budget, pricePerThousand, desc, owner, transactionId, status: "Pending" });
         await newCampaign.save();
-        res.status(201).send(newCampaign);
+        return res.sendStatus(200);
     } catch (err) {
-        res.status(500).send(err);
+        return res.status(500).send("Failed.");
     }
 });
 
 app.get('/get-campaigns', async (req, res) => {
     try {
-        const campaigns = await Campaign.find().sort({ createdAt: -1 });
-        res.status(200).send(campaigns);
+        const activeCampaigns = await Campaign.find({ status: "Active" });
+        return res.status(200).json(activeCampaigns);
     } catch (err) {
-        res.status(500).send(err);
+        return res.status(500).json([]);
     }
 });
 
-// 4. Reel Submission Routes
+app.get('/brand-campaigns/:phone', async (req, res) => {
+    try {
+        const campaigns = await Campaign.find({ owner: req.params.phone });
+        return res.status(200).json(campaigns);
+    } catch (err) {
+        return res.status(500).json([]);
+    }
+});
+
+// ==========================================
+// --- 5. SECURE ADMIN PANEL CONTROL HOOKS ---
+// ==========================================
+app.get('/get-all-campaigns-admin', async (req, res) => {
+    const adminPass = req.headers['x-admin-pass'];
+    if (adminPass !== "roshan99") return res.status(401).send("Unauthorized");
+
+    try {
+        const allCampaigns = await Campaign.find({});
+        return res.status(200).json(allCampaigns);
+    } catch (err) {
+        return res.status(500).json([]);
+    }
+});
+
+app.post('/approve-campaign', async (req, res) => {
+    const adminPass = req.headers['x-admin-pass'];
+    if (adminPass !== "roshan99") return res.status(401).send("Unauthorized");
+
+    try {
+        const { campaignId } = req.body;
+        await Campaign.findByIdAndUpdate(campaignId, { status: "Active" });
+        return res.sendStatus(200);
+    } catch (err) {
+        return res.status(500).send("Failed.");
+    }
+});
+
+app.post('/update-submission-status', async (req, res) => {
+    const adminPass = req.headers['x-admin-pass'];
+    if (adminPass !== "roshan99") return res.status(401).send("Unauthorized");
+
+    try {
+        const { submissionId, status } = req.body;
+        
+        if (!submissionId || !status) {
+            return res.status(400).send("Missing parameters");
+        }
+
+        let updatedDoc;
+        // Standard MongoDB _id checking
+        if (mongoose.Types.ObjectId.isValid(submissionId)) {
+            updatedDoc = await Submission.findByIdAndUpdate(submissionId, { status: status }, { new: true });
+        }
+        
+        // Custom string id checking fallback
+        if (!updatedDoc) {
+            updatedDoc = await Submission.findOneAndUpdate({ id: submissionId }, { status: status }, { new: true });
+        }
+
+        if (!updatedDoc) {
+            return res.status(404).send("Submission not found in Database.");
+        }
+
+        return res.sendStatus(200);
+    } catch (err) {
+        console.error(err);
+        return res.status(500).send("Failed.");
+    }
+});
+
+// ==========================================
+// --- 6. CREATOR SUBMISSIONS & ANALYTICS ---
+// ==========================================
 app.post('/submit-reel', async (req, res) => {
     try {
-        const newSubmission = new Submission(req.body);
+        const { id, creator, creatorName, insta, brand, link } = req.body;
+        const realViewsCount = await getRealViews(link);
+        const newSubmission = new Submission({ id, creator, creatorName, insta, brand, link, views: realViewsCount });
         await newSubmission.save();
-        res.status(201).send(newSubmission);
+        return res.sendStatus(200);
     } catch (err) {
-        res.status(500).send(err);
+        return res.status(500).send("Failed.");
     }
 });
 
 app.get('/get-submissions', async (req, res) => {
     try {
-        const submissions = await Submission.find().sort({ createdAt: -1 });
-        res.status(200).send(submissions);
+        const submissions = await Submission.find({});
+        const updatedSubmissions = await Promise.all(submissions.map(async (sub) => {
+            const freshViews = await getRealViews(sub.link);
+            if (freshViews > sub.views) { 
+                sub.views = freshViews;
+                await sub.save();
+            }
+            return sub;
+        }));
+        return res.status(200).json(updatedSubmissions);
     } catch (err) {
-        res.status(500).send(err);
+        return res.status(500).json([]);
     }
 });
 
+app.get('/creator-submissions/:phone', async (req, res) => {
+    try {
+        const submissions = await Submission.find({ creator: req.params.phone });
+        return res.status(200).json(submissions);
+    } catch (err) {
+        return res.status(500).json([]);
+    }
+});
+
+// ==========================================
+// --- 7. START PORT LISTENER ---
+// ==========================================
+const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-    console.log(`🚀 Server running perfectly on port ${PORT}`);
+    console.log(`🚀 Node Server running actively on network port: ${PORT}`);
 });

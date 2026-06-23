@@ -35,7 +35,6 @@ mongoose.connect(MONGO_URI)
     .then(() => console.log("📡 Connected to MongoDB Vault Securely"))
     .catch(err => console.error("💥 MongoDB Connection Error:", err));
 
-
 // ==========================================
 // --- 2. SCHEMAS & DATABASE MODELS ---
 // ==========================================
@@ -50,12 +49,10 @@ const User = mongoose.model('User', userSchema);
 const campaignSchema = new mongoose.Schema({
     name: String,
     budget: Number,
-    pricePerThousand: { type: Number, default: 0 }, 
+    pricePerThousand: Number,
     desc: String,
     owner: String, 
     transactionId: String,
-    location: { type: String, required: true },    
-    mediaUrl: { type: String, default: "" },        
     status: { type: String, default: "Pending" } 
 });
 const Campaign = mongoose.model('Campaign', campaignSchema);
@@ -107,11 +104,8 @@ async function getRealViews(reelUrl) {
 // --- 3. REAL AUTHENTICATION WITH FAST2SMS ---
 // ==========================================
 app.post('/send-otp', async (req, res) => {
-    let { name, phone, role, extraDetails } = req.body;
+    const { name, phone, role, extraDetails } = req.body;
     if (!phone) return res.status(400).json({ success: false, message: "Phone number required." });
-
-    phone = phone.toString().replace(/\D/g, ''); 
-    if (phone.length > 10) phone = phone.slice(-10); 
 
     const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString(); 
     tempUsers[phone] = { name, role, extraDetails, otp: generatedOtp };
@@ -119,26 +113,30 @@ app.post('/send-otp', async (req, res) => {
     console.log(`🔑 Generated OTP for ${phone} is [${generatedOtp}]`);
 
     try {
-        const smsResponse = await axios({
-            method: 'get',
-            url: 'https://www.fast2sms.com/dev/bulkV2',
+        const smsResponse = await axios.get('https://www.fast2sms.com/dev/bulkV2', {
             params: {
-                authorization: FAST2SMS_API_KEY.trim(),
+                authorization: FAST2SMS_API_KEY,
                 variables_values: generatedOtp,
                 route: 'otp',
                 numbers: phone
             }
         });
 
-        if (smsResponse.data && smsResponse.data.return === true) {
+        if (smsResponse.data.return === true) {
             console.log(`📲 Real SMS successfully routed to ${phone} via Fast2SMS`);
             return res.status(200).json({ success: true, message: "Real OTP sent successfully via SMS." });
         } else {
-            return res.status(200).json({ success: true, message: "SMS Gateway limit fallback activated.", fallback: true });
+            console.error("Fast2SMS Rejected Request:", smsResponse.data);
+            return res.status(500).json({ success: false, message: "SMS Gateway failure. Check Fast2SMS Wallet Balance." });
         }
+
     } catch (smsError) {
-        console.error("💥 Fast2SMS API Error Details:", smsError.response ? smsError.response.data : smsError.message);
-        return res.status(200).json({ success: true, message: "Emergency bypass active. Use OTP: 123456", fallback: true });
+        console.error("Fast2SMS API Connection Error:", smsError.message);
+        return res.status(200).json({ 
+            success: true, 
+            message: "OTP generated (Gateway Error). Use fallback 123456 for emergency testing.",
+            fallback: true 
+        });
     }
 });
 
@@ -176,14 +174,12 @@ app.post('/verify-otp', async (req, res) => {
 // ==========================================
 app.post('/run-campaign', async (req, res) => {
     try {
-        const { name, budget, desc, owner, transactionId, location, mediaUrl } = req.body;
-        const newCampaign = new Campaign({ 
-            name, budget, pricePerThousand: 0, desc, owner, transactionId, location, mediaUrl, status: "Pending" 
-        });
+        const { name, budget, pricePerThousand, desc, owner, transactionId } = req.body;
+        const newCampaign = new Campaign({ name, budget, pricePerThousand, desc, owner, transactionId, status: "Pending" });
         await newCampaign.save();
         return res.sendStatus(200);
     } catch (err) {
-        return res.status(500).send("Failed to deploy campaign.");
+        return res.status(500).send("Failed.");
     }
 });
 
@@ -225,11 +221,8 @@ app.post('/approve-campaign', async (req, res) => {
     if (adminPass !== "roshan99") return res.status(401).send("Unauthorized");
 
     try {
-        const { campaignId, pricePerThousand } = req.body;
-        await Campaign.findByIdAndUpdate(campaignId, { 
-            status: "Active", 
-            pricePerThousand: Number(pricePerThousand) 
-        });
+        const { campaignId } = req.body;
+        await Campaign.findByIdAndUpdate(campaignId, { status: "Active" });
         return res.sendStatus(200);
     } catch (err) {
         return res.status(500).send("Failed.");
@@ -244,10 +237,10 @@ app.post('/update-submission-status', async (req, res) => {
         const { submissionId, status } = req.body;
         let updatedDoc;
         if (mongoose.Types.ObjectId.isValid(submissionId)) {
-            updatedDoc = await Submission.findByIdAndUpdate(submissionId, { status: status }, { returnDocument: 'after' });
+            updatedDoc = await Submission.findByIdAndUpdate(submissionId, { status: status }, { new: true });
         }
         if (!updatedDoc) {
-            updatedDoc = await Submission.findOneAndUpdate({ id: submissionId }, { status: status }, { returnDocument: 'after' });
+            updatedDoc = await Submission.findOneAndUpdate({ id: submissionId }, { status: status }, { new: true });
         }
         if (!updatedDoc) return res.status(404).send("Submission not found.");
         return res.sendStatus(200);
